@@ -14,8 +14,17 @@ import branca.colormap as bcm
 from folium.raster_layers import ImageOverlay
 from streamlit_folium import st_folium
 from rasterio.io import MemoryFile
+from streamlit_cookies_manager import EncryptedCookieManager
 
 st.set_page_config(page_title="Elevation Lookup", page_icon="🏔️", layout="centered")
+
+# ── Cookie manager (encrypts the key at rest in the browser) ──────────────────
+cookies = EncryptedCookieManager(
+    prefix="elevation_lookup_",
+    password=st.secrets["COOKIE_PASSWORD"],
+)
+if not cookies.ready():
+    st.stop()
 
 col_title, col_feedback = st.columns([4, 1])
 with col_title:
@@ -51,7 +60,18 @@ with col3:
         }[x],
     )
 with col4:
-    api_key = st.text_input("OpenTopography API key", type="password")
+    # Pre-fill from cookie if available
+    saved_key = cookies.get("api_key", "")
+    api_key = st.text_input(
+        "OpenTopography API key",
+        value=saved_key,
+        type="password",
+        help="Your key is saved in your browser for next time.",
+    )
+    # Save to cookie whenever the field has a value
+    if api_key and api_key != saved_key:
+        cookies["api_key"] = api_key
+        cookies.save()
 
 
 # ── Core fetch ────────────────────────────────────────────────────────────────
@@ -122,14 +142,10 @@ def fetch_elevation(lat, lon, radius_km, dem_type, api_key):
 
 # ── Raster → RGBA PNG ─────────────────────────────────────────────────────────
 def make_overlay_image(data, mask, vmin, vmax):
-    """
-    Colorize the elevation raster using the terrain colormap.
-    Pixels outside the circular mask are fully transparent.
-    """
     cmap = plt.get_cmap("terrain")
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-    rgba = cmap(norm(data))                      # (rows, cols, 4) float 0-1
-    rgba[..., 3] = np.where(mask, 0.80, 0.0)    # 80% opacity inside, 0 outside
+    rgba = cmap(norm(data))
+    rgba[..., 3] = np.where(mask, 0.80, 0.0)
 
     buf = io.BytesIO()
     plt.imsave(buf, rgba, format="png")
@@ -150,7 +166,6 @@ def build_map(lat, lon, radius_km, res):
         attr="© OpenTopoMap (CC-BY-SA) | © OpenStreetMap contributors",
     )
 
-    # Colorized raster overlay
     img_bytes = make_overlay_image(res["data"], res["mask"], res["min"], res["max"])
     img_b64   = base64.b64encode(img_bytes).decode()
     ImageOverlay(
@@ -160,7 +175,6 @@ def build_map(lat, lon, radius_km, res):
         interactive=False,
     ).add_to(m)
 
-    # Circle outline
     folium.Circle(
         location=[lat, lon],
         radius=radius_km * 1000,
@@ -170,7 +184,6 @@ def build_map(lat, lon, radius_km, res):
         dash_array="6",
     ).add_to(m)
 
-    # Centre marker
     folium.CircleMarker(
         location=[lat, lon],
         radius=5,
@@ -182,7 +195,6 @@ def build_map(lat, lon, radius_km, res):
         tooltip=f"{lat}, {lon}",
     ).add_to(m)
 
-    # Colorbar — sampled from terrain colormap to match the overlay exactly
     cmap   = plt.get_cmap("terrain")
     colors = [mcolors.to_hex(cmap(p)) for p in np.linspace(0, 1, 10)]
     bcm.LinearColormap(
