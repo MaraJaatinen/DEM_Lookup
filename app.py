@@ -7,8 +7,12 @@ from rasterio.io import MemoryFile
 
 st.set_page_config(page_title="Elevation Lookup", page_icon="🏔️", layout="centered")
 
-st.title("🏔️ Elevation Lookup")
-st.caption("Mean elevation within a circular area — powered by OpenTopography")
+col_title, col_feedback = st.columns([4, 1])
+with col_title:
+    st.title("🏔️ Elevation Lookup")
+    st.caption("Mean elevation within a circular area — powered by OpenTopography")
+with col_feedback:
+    st.markdown("<div style='padding-top:1.6rem'><a href='https://forms.gle/uKST4SJR3Q85o1Y18' target='_blank'>Leave feedback</a></div>", unsafe_allow_html=True)
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
@@ -16,6 +20,7 @@ with col1:
     lat = st.number_input("Latitude", value=60.1699, format="%.6f")
 with col2:
     lon = st.number_input("Longitude", value=24.9384, format="%.6f")
+st.caption("WGS84 — decimal degrees (e.g. 60.1699, not 60° 10′ 11″)")
 
 radius_km = st.slider("Radius (km)", min_value=1, max_value=50, value=10)
 st.caption(f"Diameter: {radius_km * 2} km · Area: {math.pi * radius_km**2:.0f} km²")
@@ -24,8 +29,13 @@ col3, col4 = st.columns(2)
 with col3:
     dem_type = st.selectbox(
         "DEM source",
-        options=["SRTMGL1", "SRTMGL3", "AW3D30"],
-        format_func=lambda x: {"SRTMGL1": "SRTMGL1 (30 m)", "SRTMGL3": "SRTMGL3 (90 m)", "AW3D30": "AW3D30 (30 m)"}[x],
+        options=["COP30", "SRTMGL1", "SRTMGL3", "AW3D30"],
+        format_func=lambda x: {
+            "COP30":   "Copernicus GLO-30 (30 m)",
+            "SRTMGL1": "SRTMGL1 (30 m)",
+            "SRTMGL3": "SRTMGL3 (90 m)",
+            "AW3D30":  "AW3D30 (30 m)",
+        }[x],
     )
 with col4:
     api_key = st.text_input("OpenTopography API key", type="password")
