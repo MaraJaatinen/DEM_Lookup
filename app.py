@@ -1,8 +1,18 @@
 import math
+import io
+import base64
 import requests
 import numpy as np
 import rasterio
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import streamlit as st
+import folium
+import branca.colormap as bcm
+from folium.raster_layers import ImageOverlay
+from streamlit_folium import st_folium
 from rasterio.io import MemoryFile
 
 st.set_page_config(page_title="Elevation Lookup", page_icon="🏔️", layout="centered")
@@ -12,7 +22,10 @@ with col_title:
     st.title("🏔️ Elevation Lookup")
     st.caption("Mean elevation within a circular area — powered by OpenTopography")
 with col_feedback:
-    st.markdown("<div style='padding-top:1.6rem'><a href='https://forms.gle/uKST4SJR3Q85o1Y18' target='_blank'>Leave feedback</a></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='padding-top:1.6rem'><a href='https://forms.gle/uKST4SJR3Q85o1Y18' target='_blank'>Leave feedback</a></div>",
+        unsafe_allow_html=True,
+    )
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
@@ -40,7 +53,8 @@ with col3:
 with col4:
     api_key = st.text_input("OpenTopography API key", type="password")
 
-# ── Core function ─────────────────────────────────────────────────────────────
+
+# ── Core fetch ────────────────────────────────────────────────────────────────
 def fetch_elevation(lat, lon, radius_km, dem_type, api_key):
     km_per_deg_lat = 111.32
     km_per_deg_lon = 111.32 * math.cos(math.radians(lat))
@@ -48,17 +62,26 @@ def fetch_elevation(lat, lon, radius_km, dem_type, api_key):
     d_lat = radius_km / km_per_deg_lat
     d_lon = radius_km / km_per_deg_lon
 
+    south = lat - d_lat
+    north = lat + d_lat
+    west  = lon - d_lon
+    east  = lon + d_lon
+
     params = {
         "demtype":      dem_type,
-        "south":        lat - d_lat,
-        "north":        lat + d_lat,
-        "west":         lon - d_lon,
-        "east":         lon + d_lon,
+        "south":        south,
+        "north":        north,
+        "west":         west,
+        "east":         east,
         "outputFormat": "GTiff",
         "API_Key":      api_key,
     }
 
-    r = requests.get("https://portal.opentopography.org/API/globaldem", params=params, timeout=60)
+    r = requests.get(
+        "https://portal.opentopography.org/API/globaldem",
+        params=params,
+        timeout=60,
+    )
     r.raise_for_status()
 
     with MemoryFile(r.content) as mem:
@@ -86,12 +109,91 @@ def fetch_elevation(lat, lon, radius_km, dem_type, api_key):
         raise ValueError("No valid elevation pixels found.")
 
     return {
-        "mean":   round(float(np.mean(valid)),  2),
-        "min":    round(float(np.min(valid)),   2),
-        "max":    round(float(np.max(valid)),   2),
-        "std":    round(float(np.std(valid)),   2),
+        "mean":   round(float(np.mean(valid)), 2),
+        "min":    round(float(np.min(valid)),  2),
+        "max":    round(float(np.max(valid)),  2),
+        "std":    round(float(np.std(valid)),  2),
         "pixels": int(valid.size),
+        "data":   data,
+        "mask":   mask,
+        "bounds": (south, west, north, east),
     }
+
+
+# ── Raster → RGBA PNG ─────────────────────────────────────────────────────────
+def make_overlay_image(data, mask, vmin, vmax):
+    """
+    Colorize the elevation raster using the terrain colormap.
+    Pixels outside the circular mask are fully transparent.
+    """
+    cmap = plt.get_cmap("terrain")
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    rgba = cmap(norm(data))                      # (rows, cols, 4) float 0-1
+    rgba[..., 3] = np.where(mask, 0.80, 0.0)    # 80% opacity inside, 0 outside
+
+    buf = io.BytesIO()
+    plt.imsave(buf, rgba, format="png")
+    buf.seek(0)
+    return buf.getvalue()
+
+
+# ── Build Folium map ──────────────────────────────────────────────────────────
+def build_map(lat, lon, radius_km, res):
+    south, west, north, east = res["bounds"]
+
+    zoom = max(7, min(13, round(13 - math.log2(max(radius_km, 1)))))
+
+    m = folium.Map(
+        location=[lat, lon],
+        zoom_start=zoom,
+        tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+        attr="© OpenTopoMap (CC-BY-SA) | © OpenStreetMap contributors",
+    )
+
+    # Colorized raster overlay
+    img_bytes = make_overlay_image(res["data"], res["mask"], res["min"], res["max"])
+    img_b64   = base64.b64encode(img_bytes).decode()
+    ImageOverlay(
+        image=f"data:image/png;base64,{img_b64}",
+        bounds=[[south, west], [north, east]],
+        opacity=1.0,
+        interactive=False,
+    ).add_to(m)
+
+    # Circle outline
+    folium.Circle(
+        location=[lat, lon],
+        radius=radius_km * 1000,
+        color="#ffffff",
+        weight=1.5,
+        fill=False,
+        dash_array="6",
+    ).add_to(m)
+
+    # Centre marker
+    folium.CircleMarker(
+        location=[lat, lon],
+        radius=5,
+        color="#ffffff",
+        weight=2,
+        fill=True,
+        fill_color="#e74c3c",
+        fill_opacity=1.0,
+        tooltip=f"{lat}, {lon}",
+    ).add_to(m)
+
+    # Colorbar — sampled from terrain colormap to match the overlay exactly
+    cmap   = plt.get_cmap("terrain")
+    colors = [mcolors.to_hex(cmap(p)) for p in np.linspace(0, 1, 10)]
+    bcm.LinearColormap(
+        colors=colors,
+        vmin=res["min"],
+        vmax=res["max"],
+        caption="Elevation (m asl)",
+    ).add_to(m)
+
+    return m
+
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 if st.button("Fetch elevation", type="primary", use_container_width=True):
@@ -106,13 +208,18 @@ if st.button("Fetch elevation", type="primary", use_container_width=True):
                 st.metric("Mean elevation", f"{res['mean']} m")
 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Min", f"{res['min']} m")
-                c2.metric("Max", f"{res['max']} m")
+                c1.metric("Min",     f"{res['min']} m")
+                c2.metric("Max",     f"{res['max']} m")
                 c3.metric("Std dev", f"{res['std']} m")
 
                 st.caption(f"{res['pixels']:,} pixels sampled · {dem_type}")
 
+                st.divider()
+
+                m = build_map(lat, lon, radius_km, res)
+                st_folium(m, use_container_width=True, height=500, returned_objects=[])
+
             except requests.HTTPError as e:
-                st.error(f"API error: {e.response.status_code} — check your API key and coordinates.")
+                st.error(f"API error {e.response.status_code} — check your key and coordinates.")
             except Exception as e:
                 st.error(f"Something went wrong: {e}")

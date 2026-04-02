@@ -2,3 +2,6 @@ streamlit
 requests
 rasterio
 numpy
+matplotlib
+folium
+streamlit-folium
