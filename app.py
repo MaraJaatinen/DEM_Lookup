@@ -16,8 +16,33 @@ from folium.raster_layers import ImageOverlay
 from streamlit_folium import st_folium
 from rasterio.io import MemoryFile
 from streamlit_cookies_manager import EncryptedCookieManager
+from logo_b64 import LOGO_B64
 
 st.set_page_config(page_title="Elevation Lookup", page_icon="🏔️", layout="centered")
+
+# ── Theme injection ────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* Header bar accent */
+[data-testid="stHeader"] { background-color: #CC0000; }
+
+/* Dividers */
+hr { border-color: #CC0000 !important; }
+
+/* Warning banner → red tint */
+[data-testid="stAlert"] {
+    background-color: #fff0f0;
+    border-left: 4px solid #CC0000;
+    color: #111111;
+}
+
+/* Metric label colour */
+[data-testid="stMetricLabel"] { color: #CC0000 !important; }
+
+/* Subheader accent */
+h3 { border-bottom: 2px solid #CC0000; padding-bottom: 4px; }
+</style>
+""", unsafe_allow_html=True)
 
 # ── Cookie manager ─────────────────────────────────────────────────────────────
 cookies = EncryptedCookieManager(
@@ -27,7 +52,6 @@ cookies = EncryptedCookieManager(
 if not cookies.ready():
     st.stop()
 
-# ── Terms of use text ─────────────────────────────────────────────────────────
 TERMS_TEXT = """
 **Elevation Lookup — Terms of Use**
 
@@ -51,7 +75,6 @@ knowledge and is not suitable for general public use.
 By continuing you confirm that you have read, understood, and accepted these terms.
 """
 
-# ── Terms gate — block the app until accepted ─────────────────────────────────
 terms_accepted = cookies.get("terms_accepted", "")
 
 @st.dialog("Terms of Use")
@@ -66,7 +89,6 @@ if terms_accepted != "yes":
     show_terms_gate()
     st.stop()
 
-# ── Terms popup (re-openable) ─────────────────────────────────────────────────
 @st.dialog("Terms of Use")
 def show_terms_popup():
     st.markdown(TERMS_TEXT)
@@ -76,14 +98,22 @@ if st.session_state.get("open_terms"):
     st.session_state["open_terms"] = False
     show_terms_popup()
 
-# ── Header ────────────────────────────────────────────────────────────────────
-col_title, col_feedback = st.columns([4, 1])
-with col_title:
-    st.title("🏔️ Elevation Lookup")
-    st.caption("Mean elevation within a circular area — powered by OpenTopography")
-with col_feedback:
+# ── Header with logo ──────────────────────────────────────────────────────────
+logo_col, title_col, feedback_col = st.columns([2, 4, 1])
+with logo_col:
     st.markdown(
-        "<div style='padding-top:1.6rem'><a href='https://forms.gle/uKST4SJR3Q85o1Y18' target='_blank'>Leave feedback</a></div>",
+        f'<img src="data:image/png;base64,{LOGO_B64}" style="width:100%;max-width:180px;'
+        f'padding-top:0.4rem;">',
+        unsafe_allow_html=True,
+    )
+with title_col:
+    st.title("Elevation Lookup")
+    st.caption("Mean elevation within a circular area — powered by OpenTopography")
+with feedback_col:
+    st.markdown(
+        "<div style='padding-top:1.8rem;font-size:0.8rem'>"
+        "<a href='https://forms.gle/uKST4SJR3Q85o1Y18' target='_blank'>Leave feedback</a>"
+        "</div>",
         unsafe_allow_html=True,
     )
 
@@ -141,6 +171,20 @@ st.subheader("Structure")
 col5, col6 = st.columns(2)
 with col5:
     tower_height = st.number_input("Structure height (m)", min_value=0.0, value=100.0, step=1.0)
+with col6:
+    use_manual_elev = st.checkbox(
+        "Override site elevation",
+        help="Use a surveyed or GPS-measured ground elevation instead of the DEM centre pixel.",
+    )
+    manual_elev = None
+    if use_manual_elev:
+        manual_elev = st.number_input(
+            "Site elevation (m asl)",
+            value=0.0,
+            step=0.1,
+            format="%.1f",
+            help="Surveyed or GPS-measured ground elevation at the structure base.",
+        )
 
 
 # ── Core fetch ────────────────────────────────────────────────────────────────
@@ -221,7 +265,8 @@ def calc_reference_height(site_elev, mean_elev, tower_height):
 
 
 # ── Cross-section diagram ─────────────────────────────────────────────────────
-def make_diagram(site_elev, mean_elev, tower_height, ref_height, assessment_asl):
+def make_diagram(site_elev, mean_elev, tower_height, ref_height, assessment_asl,
+                 site_label="Site elevation"):
     tower_tip_asl = site_elev + tower_height
     assess_point  = site_elev + (2 / 3) * tower_height
 
@@ -233,23 +278,22 @@ def make_diagram(site_elev, mean_elev, tower_height, ref_height, assessment_asl)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
-    ax.axhspan(y_min, mean_elev, color="#d4e8c2", alpha=0.6, zorder=0)
-    ax.axhline(mean_elev,     color="#5a8a3c", linewidth=1.5, linestyle="--", zorder=1)
-    ax.axhline(site_elev,     color="#8B6914", linewidth=2,   zorder=2)
+    ax.axhspan(y_min, mean_elev, color="#f5d5d5", alpha=0.5, zorder=0)
+    ax.axhline(mean_elev, color="#CC0000", linewidth=1.5, linestyle="--", zorder=1)
+    ax.axhline(site_elev, color="#111111", linewidth=2,   zorder=2)
 
     tower_x   = 0.45
     bar_width = 0.06
     ax.add_patch(mpatches.FancyArrow(
         tower_x, site_elev, 0, tower_height - y_span * 0.02,
         width=bar_width, head_width=bar_width * 1.8, head_length=y_span * 0.02,
-        color="#555", zorder=3,
+        color="#CC0000", zorder=3,
     ))
 
-    ax.plot(tower_x, assess_point, "o", color="#c0392b", markersize=8, zorder=5)
-    ax.axhline(assess_point, color="#c0392b", linewidth=0.8, linestyle=":", alpha=0.5, zorder=4)
+    ax.plot(tower_x, assess_point, "o", color="#CC0000", markersize=8, zorder=5)
+    ax.axhline(assess_point, color="#CC0000", linewidth=0.8, linestyle=":", alpha=0.6, zorder=4)
 
-    lx = 0.56
-    fs = 8.5
+    lx, fs = 0.56, 8.5
 
     def label(y, text, value_str, color):
         ax.annotate(
@@ -260,18 +304,22 @@ def make_diagram(site_elev, mean_elev, tower_height, ref_height, assessment_asl)
             annotation_clip=False,
         )
 
-    label(tower_tip_asl, "Tower tip",       f"{tower_tip_asl:.1f} m asl",  "#333333")
+    label(tower_tip_asl, "Tower tip",
+          f"{tower_tip_asl:.1f} m asl", "#111111")
     label(assess_point,  "Assessment point\n(2/3 height + terrain)",
-                                             f"{assessment_asl:.1f} m asl  |  ref {ref_height:.1f} m", "#c0392b")
-    label(site_elev,     "Site elevation",  f"{site_elev:.1f} m asl",      "#8B6914")
-    label(mean_elev,     "Mean terrain",    f"{mean_elev:.1f} m asl",      "#5a8a3c")
+          f"{assessment_asl:.1f} m asl  |  ref {ref_height:.1f} m", "#CC0000")
+    label(site_elev,     site_label,
+          f"{site_elev:.1f} m asl", "#111111")
+    label(mean_elev,     "Mean terrain",
+          f"{mean_elev:.1f} m asl", "#CC0000")
 
     ax.set_xlim(0, 1)
     ax.set_ylim(y_min, y_max)
-    ax.set_ylabel("Elevation (m asl)", fontsize=9)
+    ax.set_ylabel("Elevation (m asl)", fontsize=9, color="#111111")
     ax.set_xticks([])
     ax.spines[["top", "right", "bottom"]].set_visible(False)
-    ax.tick_params(axis="y", labelsize=8)
+    ax.tick_params(axis="y", labelsize=8, colors="#111111")
+    ax.spines["left"].set_color("#CCCCCC")
 
     plt.tight_layout()
     buf = io.BytesIO()
@@ -281,13 +329,12 @@ def make_diagram(site_elev, mean_elev, tower_height, ref_height, assessment_asl)
     return buf
 
 
-# ── Raster → RGBA PNG ─────────────────────────────────────────────────────────
+# ── Raster overlay ────────────────────────────────────────────────────────────
 def make_overlay_image(data, mask, vmin, vmax):
     cmap = plt.get_cmap("terrain")
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
     rgba = cmap(norm(data))
     rgba[..., 3] = np.where(mask, 0.80, 0.0)
-
     buf = io.BytesIO()
     plt.imsave(buf, rgba, format="png")
     buf.seek(0)
@@ -300,14 +347,14 @@ def build_map(lat, lon, radius_km, res):
     zoom = max(7, min(13, round(13 - math.log2(max(radius_km, 1)))))
 
     m = folium.Map(
-        location=[lat, lon],
-        zoom_start=zoom,
+        location=[lat, lon], zoom_start=zoom,
         tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
         attr="© OpenTopoMap (CC-BY-SA) | © OpenStreetMap contributors",
     )
 
-    img_bytes = make_overlay_image(res["data"], res["mask"], res["min"], res["max"])
-    img_b64   = base64.b64encode(img_bytes).decode()
+    img_b64 = base64.b64encode(
+        make_overlay_image(res["data"], res["mask"], res["min"], res["max"])
+    ).decode()
     ImageOverlay(
         image=f"data:image/png;base64,{img_b64}",
         bounds=[[south, west], [north, east]],
@@ -316,13 +363,13 @@ def build_map(lat, lon, radius_km, res):
 
     folium.Circle(
         location=[lat, lon], radius=radius_km * 1000,
-        color="#ffffff", weight=1.5, fill=False, dash_array="6",
+        color="#CC0000", weight=1.5, fill=False, dash_array="6",
     ).add_to(m)
 
     folium.CircleMarker(
         location=[lat, lon], radius=5,
         color="#ffffff", weight=2,
-        fill=True, fill_color="#e74c3c", fill_opacity=1.0,
+        fill=True, fill_color="#CC0000", fill_opacity=1.0,
         tooltip=f"{lat}, {lon}",
     ).add_to(m)
 
@@ -345,18 +392,33 @@ if st.button("Fetch elevation", type="primary", use_container_width=True):
             try:
                 res = fetch_elevation(lat, lon, radius_km, dem_type, api_key)
 
+                # Determine site elevation source
+                if use_manual_elev and manual_elev is not None:
+                    site_elev  = round(manual_elev, 1)
+                    site_label = "Site elevation (manual)"
+                    site_note  = "⚠ Using manually entered site elevation"
+                else:
+                    site_elev  = res["centre"]
+                    site_label = "Site elevation"
+                    site_note  = None
+
                 st.success("Done!")
 
                 c0, c1, c2, c3, c4 = st.columns(5)
-                c0.metric("Site elevation", f"{res['centre']} m")
+                c0.metric("Site elevation", f"{site_elev} m",
+                          help="Manual override" if use_manual_elev else "DEM centre pixel")
                 c1.metric("Mean elevation", f"{res['mean']} m")
                 c2.metric("Min",            f"{res['min']} m")
                 c3.metric("Max",            f"{res['max']} m")
                 c4.metric("Std dev",        f"{res['std']} m")
-                st.caption(f"{res['pixels']:,} pixels sampled · {dem_type}")
+
+                caption = f"{res['pixels']:,} pixels sampled · {dem_type}"
+                if site_note:
+                    caption += f" · {site_note}"
+                st.caption(caption)
 
                 ref_height, assessment_asl, terrain_corr = calc_reference_height(
-                    res["centre"], res["mean"], tower_height
+                    site_elev, res["mean"], tower_height
                 )
 
                 st.divider()
@@ -370,14 +432,15 @@ if st.button("Fetch elevation", type="primary", use_container_width=True):
                           help="Absolute elevation of the 2/3-height assessment point")
 
                 st.divider()
-                diagram_buf = make_diagram(
-                    res["centre"], res["mean"], tower_height, ref_height, assessment_asl
+                st.image(
+                    make_diagram(site_elev, res["mean"], tower_height,
+                                 ref_height, assessment_asl, site_label),
+                    use_container_width=True,
                 )
-                st.image(diagram_buf, use_container_width=True)
 
                 st.divider()
-                m = build_map(lat, lon, radius_km, res)
-                st_folium(m, use_container_width=True, height=500, returned_objects=[])
+                st_folium(build_map(lat, lon, radius_km, res),
+                          use_container_width=True, height=500, returned_objects=[])
 
             except requests.HTTPError as e:
                 st.error(f"API error {e.response.status_code} — check your key and coordinates.")
