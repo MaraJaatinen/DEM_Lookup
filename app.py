@@ -29,13 +29,6 @@ st.markdown("""
 /* Dividers */
 hr { border-color: #CC0000 !important; }
 
-/* Warning banner → red tint */
-[data-testid="stAlert"] {
-    background-color: #fff0f0;
-    border-left: 4px solid #CC0000;
-    color: #111111;
-}
-
 /* Metric label colour */
 [data-testid="stMetricLabel"] { color: #CC0000 !important; }
 
@@ -120,12 +113,15 @@ with feedback_col:
 # ── Persistent ToS reminder ───────────────────────────────────────────────────
 warn_col, link_col = st.columns([5, 1])
 with warn_col:
-    st.warning(
-        "**Beta — verify all results independently before use in any assessment or design.** "
-        "For use by qualified professionals only."
+    st.markdown(
+        "<div style='background:#fff0f0;border-left:4px solid #CC0000;padding:0.6rem 0.8rem;"
+        "border-radius:4px;color:#111111;font-size:0.9rem;'>"
+        "<strong>Beta — verify all results independently before use in any assessment or design.</strong>"
+        " For use by qualified professionals only.</div>",
+        unsafe_allow_html=True,
     )
 with link_col:
-    st.markdown("<div style='padding-top:1rem'>", unsafe_allow_html=True)
+    st.markdown("<div style='padding-top:0.4rem'>", unsafe_allow_html=True)
     if st.button("Terms of use", use_container_width=True):
         st.session_state["open_terms"] = True
         st.rerun()
