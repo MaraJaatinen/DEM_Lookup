@@ -130,9 +130,9 @@ with link_col:
 # ── Inputs ────────────────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
 with col1:
-    lat = st.number_input("Latitude", value=69.043829, format="%.6f")
+    lat = st.number_input("Latitude", value=69.308038333, format="%.6f")
 with col2:
-    lon = st.number_input("Longitude", value=20.857571, format="%.6f")
+    lon = st.number_input("Longitude", value=21.265011389, format="%.6f")
 st.caption("WGS84 — decimal degrees (e.g. 60.1699, not 60° 10′ 11″)")
 
 radius_km = st.slider("Radius (km)", min_value=1, max_value=50, value=10)
