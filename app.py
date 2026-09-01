@@ -15,7 +15,7 @@ import branca.colormap as bcm
 from folium.raster_layers import ImageOverlay
 from streamlit_folium import st_folium
 from rasterio.io import MemoryFile
-from streamlit_cookies_manager import EncryptedCookieManager
+from streamlit_cookies_controller import CookieController
 from logo_b64 import LOGO_B64
 
 st.set_page_config(page_title="Elevation Lookup", page_icon="🏔️", layout="centered")
@@ -38,12 +38,7 @@ h3 { border-bottom: 2px solid #CC0000; padding-bottom: 4px; }
 """, unsafe_allow_html=True)
 
 # ── Cookie manager ─────────────────────────────────────────────────────────────
-cookies = EncryptedCookieManager(
-    prefix="elevation_lookup_",
-    password=st.secrets["COOKIE_PASSWORD"],
-)
-if not cookies.ready():
-    st.stop()
+cookies = CookieController()
 
 TERMS_TEXT = """
 **Elevation Lookup — Terms of Use**
@@ -68,14 +63,13 @@ knowledge and is not suitable for general public use.
 By continuing you confirm that you have read, understood, and accepted these terms.
 """
 
-terms_accepted = cookies.get("terms_accepted", "")
+terms_accepted = cookies.get("el_terms_accepted") or ""
 
 @st.dialog("Terms of Use")
 def show_terms_gate():
     st.markdown(TERMS_TEXT)
     if st.button("I understand and accept", type="primary", use_container_width=True):
-        cookies["terms_accepted"] = "yes"
-        cookies.save()
+        cookies.set("el_terms_accepted", "yes")
         st.rerun()
 
 if terms_accepted != "yes":
@@ -151,7 +145,7 @@ with col3:
         }[x],
     )
 with col4:
-    saved_key = cookies.get("api_key", "")
+    saved_key = cookies.get("el_api_key") or ""
     api_key = st.text_input(
         "OpenTopography API key",
         value=saved_key,
@@ -159,8 +153,7 @@ with col4:
         help="Your key is saved in your browser for next time.",
     )
     if api_key and api_key != saved_key:
-        cookies["api_key"] = api_key
-        cookies.save()
+        cookies.set("el_api_key", api_key)
 
 st.divider()
 st.subheader("Structure")
